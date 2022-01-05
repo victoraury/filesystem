@@ -14,7 +14,7 @@ BLOCKNUMBER = int(DISKSIZE/BLOCKSIZE)
 # criado -> 4B (unsigned int timestamp)
 # modificado -> 4B (unsigned int timestamp)
 # 168 bytes até aqui
-
+ 
 # ponteiros -> 2B (uint 16 apontando para blocos)
 # (4096-168)/2 = 1962 max blocos referenciados
 class iNode:
@@ -79,13 +79,24 @@ class DiskManager:
     def __init__(self, diskpath) -> None:
         d = open(diskpath, 'r+b')
         self.disk = mmap.mmap(d.fileno(), 0)
+
+    def _readBytes(self, start, end=None):
+        # lê do disco os bytes no intervalo "start":"end"
+        # se end nao for passado, lê apenas 1 byte
+        if end is None:
+            return self.disk[start]
+        else:
+            return self.disk[start:end]
     
-    def _writeBlock(self, content, block):
-        pass
+    def _writeBytes(self, atIndex, bytes):
+        # escreve "bytes" no disco a partir do byte "atIndex"
+        self.disk[atIndex: atIndex+len(bytes)] = bytes
+        self.disk.flush(atIndex, len(bytes))
     
     @staticmethod
     def _blockify(bytes):
-        
+        # transforma um bytearray de tamanho n "bytes" em uma lista de bytearray's de tamanho BLOCKSIZE
+        # se a divisão não for exata, faz padding
         blocks = []
         for i in range(0, len(bytes), BLOCKSIZE):
             b = bytes[i:i+BLOCKSIZE]
@@ -96,11 +107,6 @@ class DiskManager:
 
         return blocks
 
-    def _readBytes(self, start, end=None):
-        if end is None:
-            return self.disk[start]
-        else:
-            return self.disk[start:end]
 
 def resetDisk():
     bytearr = bytearray(DISKSIZE)
@@ -108,40 +114,11 @@ def resetDisk():
         disk.write(bytearr)
 
 def test():
-    # original = iNode(
-    #     'root',
-    #     1,
-    #     datetime.datetime.now().timestamp(),
-    #     datetime.datetime.now().timestamp()+1,
-    #     'victor',
-    #     [i for i in range(2,30)]
-    # )
-    # og_bytes = original.toBytes()
-    # lido = iNode.fromBytes(og_bytes)
-    # ld_bytes = lido.toBytes()
-
-    # print(og_bytes == ld_bytes)
-    # print(original, lido)
-
-    yo = bytearray()
-    [yo.extend(i.encode('utf-8')) for i in ['kekw', 'yo']]
-    
-    print(yo)
-    print(DiskManager._blockify(yo))
-    
-
-
-
-def main():
-    # print(DISKSIZE, BLOCKNUMBER)
-
-    disk = open('disk.bin', 'r+b')
-    A = mmap.mmap(disk.fileno(), 0)
-
-    print(A[0:10])
+    pass
 
 
 if __name__ == "__main__":
     # resetDisk()
-    # main()
-    test()
+    # test()
+    pass
+
