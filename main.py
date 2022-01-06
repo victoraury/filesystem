@@ -32,33 +32,42 @@ class iNode:
     
     def toBytes(self):
         serialized = bytearray(BLOCKSIZE)
-        
+        index = 0
         # nome do arquivo/diretorio
         name = bytearray(self.name, encoding='utf-8')
         if len(name) > 128:
-            raise Exception()
-        serialized[0:len(name)] = name
+            raise Exception(f"Erro: o nome \"{self.name}\" possui um tamanho maior do que o máximo permitido")
+        serialized[index: index+len(name)] = name
+        index += 128
         
         # tipo
-        serialized[128:130] = int.to_bytes(self.type, 2, 'big', signed=False)
+        serialized[index:index+2] = int.to_bytes(self.type, 2, 'big', signed=False)
+        index += 2
         # criado
-        serialized[130:134] = int.to_bytes(self.created, 4, 'big', signed=False)
+        serialized[index:index+4] = int.to_bytes(self.created, 4, 'big', signed=False)
+        index += 4
         # modificado
-        serialized[134:138] = int.to_bytes(self.modified, 4, 'big', signed=False)
+        serialized[index:index+4] = int.to_bytes(self.modified, 4, 'big', signed=False)
+        index += 4
         
         # dono
         ow = bytearray(self.owner, 'utf-8')
         if len(ow) > 30:
-            raise Exception()
-        serialized[138:138+len(ow)] = ow
+            raise Exception(f"Erro: o nome do dono \"{self.owner}\" possui um tamanho maior do que o máximo permitido")
+        serialized[index:index+len(ow)] = ow
+        index += 30
 
         # tabela de blocos
         blocks = bytearray()
         if len(self.table) > 1962:
-            raise Exception()
+            raise Exception(f"Erro: tamanho máximo de referências excedido")
         for block in self.table:
             blocks.extend(int.to_bytes(block, 2, 'big', signed=False))
-        serialized[168:168+len(blocks)] = blocks
+        null = int.to_bytes(65535, 2, 'big', signed=False)
+        for i in range(len(self.table), 3924):
+            blocks.extend(null)
+        serialized[index: index+3924] = blocks
+        index += 3924
 
         return serialized
     
@@ -71,7 +80,7 @@ class iNode:
             int.from_bytes(byteblock[130:134], 'big', signed=False),
             int.from_bytes(byteblock[134:138], 'big', signed=False),
             byteblock[138:168].decode('utf-8'),
-            [block for block in blocks if block != 0]
+            [block for block in blocks if block != 65535]
         )
 
 class DiskManager:
@@ -114,11 +123,19 @@ def resetDisk():
         disk.write(bytearr)
 
 def test():
+    a = iNode('a', 1, 50, 90, 'eu', [1,2,3])
+    a_b = a.toBytes()
+    b = iNode.fromBytes(a_b)
+
+    print(a,b)
     pass
 
 
 if __name__ == "__main__":
     # resetDisk()
-    # test()
+    test()
+
+
+
     pass
 
