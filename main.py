@@ -1,23 +1,26 @@
 import mmap
 import datetime
 
-
 DISKSIZE = 128*(2**20)
 BLOCKSIZE = 4*(2**10)
 BLOCKNUMBER = int(DISKSIZE/BLOCKSIZE)
 
 
-# iNode
-# nome -> 128B
-# tipo -> 2B (uint 16 - 0:dir, 1:file)
-# dono -> 30B (nome do dono)
-# criado -> 4B (unsigned int timestamp)
-# modificado -> 4B (unsigned int timestamp)
-# 168 bytes até aqui
- 
-# ponteiros -> 2B (uint 16 apontando para blocos)
-# (4096-168)/2 = 1962 max blocos referenciados
 class iNode:
+    """
+    iNode
+    nome -> 128B
+    tipo -> 2B (uint 16 - 0:dir, 1:file)
+    dono -> 30B (nome do dono)
+    criado -> 4B (unsigned int timestamp)
+    modificado -> 4B (unsigned int timestamp)
+    168 bytes até aqui
+    
+    ponteiros -> 2B (uint 16 apontando para blocos)
+    (4096-168)/2 = 1962 max blocos referenciados
+    isso limita cada diretório a ter 1962 elementos
+    e o tamanho máximo de arquivo a (1962*4096) = 8036352 bytes
+    """
 
     def __init__(self, name, itype, created, modified, owner, table = []):
         self.name = name
@@ -58,17 +61,20 @@ class iNode:
         index += 30
 
         # tabela de blocos
-        blocks = bytearray()
         if len(self.table) > 1962:
             raise Exception(f"Erro: tamanho máximo de referências excedido")
-        for block in self.table:
-            blocks.extend(int.to_bytes(block, 2, 'big', signed=False))
-        null = int.to_bytes(65535, 2, 'big', signed=False)
-        for i in range(len(self.table), 3924):
-            blocks.extend(null)
-        serialized[index: index+3924] = blocks
-        index += 3924
 
+        null = int.to_bytes(65535, 2, 'big', signed=False)
+
+        for block in self.table:
+            serialized[index: index+2] = int.to_bytes(block, 2, 'big', signed=False)
+            index += 2
+            
+
+        for i in range(len(self.table), 1962+2):
+            serialized[index: index+2] = null
+            index += 2
+        
         return serialized
     
     @staticmethod
@@ -85,7 +91,38 @@ class iNode:
 
 class DiskManager:
 
-    def __init__(self, diskpath) -> None:
+    INODESTART = 2 * BLOCKSIZE
+    DATASTART = 2758 * BLOCKSIZE
+
+    """
+    gerenciamento de blocos alocados:
+        o disco possui 128MB e blocos de 4KB, para um total de 32768 blocos
+        o status de cada bloco (livre ou o ocupado) será identificado por um bit
+        então são necessários 4096 bytes (2 blocos) [0:2] em disco
+    espaço para iNodes:
+        o disco possuirá 2766 iNode's [2:2768] em disco
+        o primeiro iNode sempre será a pasta raiz (bloco índice 2)
+    espaço para dados de arquivos:
+        será o restante (30000 blocos) [2768:32768] em disco
+    """
+
+    def __init__(self, diskpath, wipeDisk = False) -> None:
+
+        if wipeDisk:
+            bytearr = bytearray(DISKSIZE)
+            bytearr[0:1] = int.to_bytes(192, 1, 'big', signed=False)
+            # k = 
+            bytearr[self.INODESTART: self.INODESTART + BLOCKSIZE] = (
+                iNode(
+                    'root', 0,
+                    datetime.datetime.now().timestamp(), datetime.datetime.now().timestamp(),
+                    'system'
+                ).toBytes()
+            )
+
+            with open(diskpath, 'wb') as disk:
+                disk.write(bytearr)
+
         d = open(diskpath, 'r+b')
         self.disk = mmap.mmap(d.fileno(), 0)
 
@@ -116,26 +153,17 @@ class DiskManager:
 
         return blocks
 
-
-def resetDisk():
-    bytearr = bytearray(DISKSIZE)
-    with open('disk.bin', 'wb') as disk:
-        disk.write(bytearr)
+    
+    
 
 def test():
-    a = iNode('a', 1, 50, 90, 'eu', [1,2,3])
-    a_b = a.toBytes()
-    b = iNode.fromBytes(a_b)
-
-    print(a,b)
+    A = DiskManager('disk.bin')
+    print(bin(A._readBytes(0)))
+    print(iNode.fromBytes(A._readBytes(A.INODESTART, A.INODESTART + BLOCKSIZE)))
     pass
 
 
 if __name__ == "__main__":
-    # resetDisk()
     test()
-
-
-
     pass
 
