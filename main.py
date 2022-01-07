@@ -1,9 +1,21 @@
 import mmap
 import datetime
+from math import log, log2
 
 DISKSIZE = 128*(2**20)
 BLOCKSIZE = 4*(2**10)
 BLOCKNUMBER = int(DISKSIZE/BLOCKSIZE)
+
+# iterator sobre bits
+def bits(int):
+    mask = 0b10000000
+    for i in range(8):
+        if int & mask:
+            yield (False, i)
+        else:
+            yield (True, i)
+        mask = mask >> 1
+
 
 
 class iNode:
@@ -110,8 +122,7 @@ class DiskManager:
 
         if wipeDisk:
             bytearr = bytearray(DISKSIZE)
-            bytearr[0:1] = int.to_bytes(192, 1, 'big', signed=False)
-            # k = 
+            bytearr[0:1] = int.to_bytes(224, 1, 'big', signed=False)
             bytearr[self.INODESTART: self.INODESTART + BLOCKSIZE] = (
                 iNode(
                     'root', 0,
@@ -130,14 +141,14 @@ class DiskManager:
         # lê do disco os bytes no intervalo "start":"end"
         # se end nao for passado, lê apenas 1 byte
         if end is None:
-            return self.disk[start]
+            return self.disk[start:start+1]
         else:
             return self.disk[start:end]
     
     def _writeBytes(self, atIndex, bytes):
         # escreve "bytes" no disco a partir do byte "atIndex"
         self.disk[atIndex: atIndex+len(bytes)] = bytes
-        self.disk.flush(atIndex, len(bytes))
+        self.disk.flush()
     
     @staticmethod
     def _blockify(bytes):
@@ -152,18 +163,59 @@ class DiskManager:
             blocks[-1].extend(bytearray(BLOCKSIZE - len(blocks[-1])))
 
         return blocks
+    
+    def _allocate(self, type='inode') -> int:
+        # aloca um bloco na tabela de alocação e retorna o índice
+        if type == 'inode':
+            byterange = self._readBytes(0, 221)
+        elif type == 'data':
+            byterange = self._readBytes(221, 2*BLOCKSIZE)
+        else:
+            raise Exception()
+        
+        # encontra o byte com algum bit 0
+        byte_index = 0
+        byte_value = 0
+        while byte_index < len(byterange):
+            byte_value = int.from_bytes(byterange[byte_index:byte_index+1], 'big', signed=False)
+            if byte_value != 255:
+                break
+            else:
+                byte_index += 1
+        else:
+            raise Exception('AllocationError')
+        
+        for (b, p) in bits(byte_value):
+            if b:
+                byte_value |= (128 >> p)
+                block_index = 8*byte_index + p
+                break
+        
+        self._writeBytes(byte_index, int.to_bytes(byte_value, 1, 'big', signed=False))
 
+        return block_index
+    
+    def _deallocate(self, blockindex):
+        # marca bloco como desalocado na tabela de alocação
+        byte = blockindex // 8
+        bit = blockindex % 8
+        old = int.from_bytes(self._readBytes(byte), 'big', signed=False)
+        new = ( old & ~(128 >> bit) )
+        self._writeBytes(byte, int.to_bytes(new, 1, 'big', signed=False))
     
     
+        
 
 def test():
-    A = DiskManager('disk.bin')
-    print(bin(A._readBytes(0)))
-    print(iNode.fromBytes(A._readBytes(A.INODESTART, A.INODESTART + BLOCKSIZE)))
+    A = DiskManager('disk.bin', wipeDisk=False)
+    a = A._allocate()
+    print(a)
+    # A._deallocate(i)
+
+    # print(iNode.fromBytes(A._readBytes(A.INODESTART, A.INODESTART + BLOCKSIZE)))
     pass
 
 
 if __name__ == "__main__":
     test()
     pass
-
