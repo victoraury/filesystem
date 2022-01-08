@@ -6,7 +6,7 @@ DISKSIZE = 128*(2**20)
 BLOCKSIZE = 4*(2**10)
 BLOCKNUMBER = int(DISKSIZE/BLOCKSIZE)
 
-# iterator sobre bits
+# itera sobre os bits de um byte dizendo se é 0 ou não
 def bits(int):
     mask = 0b10000000
     for i in range(8):
@@ -16,7 +16,16 @@ def bits(int):
             yield (True, i)
         mask = mask >> 1
 
-
+class bcolors:
+    HEADER = '\033[95m'
+    OKBLUE = '\033[94m'
+    OKCYAN = '\033[96m'
+    OKGREEN = '\033[92m'
+    WARNING = '\033[93m'
+    FAIL = '\033[91m'
+    ENDC = '\033[0m'
+    BOLD = '\033[1m'
+    UNDERLINE = '\033[4m'
 
 class iNode:
     """
@@ -93,11 +102,11 @@ class iNode:
     def fromBytes(byteblock):
         blocks = [int.from_bytes(byteblock[i:i+2], 'big', signed=False) for i in range(168, 4096, 2)]
         return iNode(
-            byteblock[0:128].decode('utf-8'),
+            byteblock[0:128].decode('utf-8').rstrip('\00'),
             int.from_bytes(byteblock[128:130], 'big', signed=False),
             int.from_bytes(byteblock[130:134], 'big', signed=False),
             int.from_bytes(byteblock[134:138], 'big', signed=False),
-            byteblock[138:168].decode('utf-8'),
+            byteblock[138:168].decode('utf-8').rstrip('\00'),
             [block for block in blocks if block != 65535]
         )
 
@@ -133,9 +142,13 @@ class DiskManager:
 
             with open(diskpath, 'wb') as disk:
                 disk.write(bytearr)
+            
 
         d = open(diskpath, 'r+b')
         self.disk = mmap.mmap(d.fileno(), 0)
+
+        self.root = 2
+        self.current_dir = []
 
     def _readBytes(self, start, end=None):
         # lê do disco os bytes no intervalo "start":"end"
@@ -203,19 +216,84 @@ class DiskManager:
         new = ( old & ~(128 >> bit) )
         self._writeBytes(byte, int.to_bytes(new, 1, 'big', signed=False))
     
+
+    def _resolvePath(self, pathString):
+        curr_path = self.current_dir.copy()
+        tokens = pathString.split("/")
+        
+        for t in tokens:
+            
+            if len(curr_path) > 0:
+                curr_node = curr_path[-1]
+            else:
+                curr_node = self.root
+            curr_node = self.get_inode(curr_node)
+
+            if t == '..' and len(curr_path) > 0:
+                curr_path.pop()
+                continue
+            elif t == '.':
+                continue
+
+            if curr_node.type != 0:
+                raise FileNotFoundError(f'{curr_node.name} is not a directory')
+
+            (has, idx) = self._get_subdir(curr_node.table, t)
+            if not has:
+                raise FileNotFoundError(f"{curr_node.name}/{t} doens\'t exist")
+            else:
+                curr_path.append(idx)
+                
+        if len(curr_path) > 0:
+            return (idx, curr_path)
+        else:
+            return (self.root, curr_path)
+
+
     
+    def run(self):
+        while True:
+            # get user input
+            curr_path = [self.get_inode(self.root).name] + [self.get_inode(i).name for i in self.current_dir]
+            print(f"{bcolors.OKBLUE}{'/'.join(curr_path)}{bcolors.ENDC}$ ", end='', flush=True)
+            usr_inp = input()
+
+
         
 
 def test():
     A = DiskManager('disk.bin', wipeDisk=False)
-    a = A._allocate()
-    print(a)
-    # A._deallocate(i)
+    print(A.get_inode(A.root))
 
-    # print(iNode.fromBytes(A._readBytes(A.INODESTART, A.INODESTART + BLOCKSIZE)))
+    # A.mkdir(A.get_inode(A.root), 'kekkeroni')
+    A.run()
+
+    # R = iNode.fromBytes(A._readBytes(A.root*BLOCKSIZE, (A.root + 1)*BLOCKSIZE))
+    # print([R.name], R.name == 'root')
+
     pass
 
 
 if __name__ == "__main__":
     test()
     pass
+
+
+# REQUIREMENTS:
+
+# Operações sobre arquivos:
+
+#     - Criar arquivo (touch arquivo)
+#     - Remover arquivo (rm arquivo)
+#     - Escrever no arquivo (echo "conteudo legal" >> arquivo)
+#     - Ler arquivo (cat arquivo)
+#     - Copiar arquivo (cp arquivo1 arquivo2)
+#     - Renomear arquivo (mv arquivo1 arquivo2)
+
+# Operações sobre diretórios:
+
+#     - Criar diretório (mkdir diretorio)
+#     - Remover diretório (rmdir diretorio) - só funciona se diretório estiver vazio
+#     - Trocar de diretório (cd diretorio)
+#         * Não esquecer dos arquivos especiais . e .. 
+#     - Renomear diretorio (mv diretorio1 diretorio2)
