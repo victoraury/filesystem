@@ -147,7 +147,7 @@ class DiskManager:
         self.disk = mmap.mmap(d.fileno(), 0)
         self.user = user
         self.root = 2
-        self.current_dir = []
+        self.current_dir = [2]
 
     def _readBytes(self, start, end=None):
         # lê do disco os bytes no intervalo "start":"end"
@@ -294,19 +294,21 @@ class DiskManager:
         curr_path = self.current_dir.copy()
         tokens = pathString.split("/")
 
+        if len(tokens) and tokens[0] == '':
+            curr_path = curr_path[:1]
+            tokens = tokens[1:]
+
         pos = 0
         for t in tokens:
+            curr_node = curr_path[-1]
             
-            if len(curr_path) > 0:
-                curr_node = curr_path[-1]
-            else:
-                curr_node = self.root
             curr_node = self.get_inode(curr_node)
 
-            if t == '..' and len(curr_path) > 0:
-                curr_path.pop()
+            if t == '..':
+                if len(curr_path) > 1:
+                    curr_path.pop()
                 continue
-            elif t == '.':
+            elif t == '.' or t =='':
                 continue
 
             if curr_node.type != 0:
@@ -319,10 +321,10 @@ class DiskManager:
             else:
                 curr_path.append(curr_node.table[pos])
                 
-        if len(curr_path) > 0:
-            return (curr_node.table[pos], curr_path)
-        else:
-            return (self.root, curr_path)
+        # if len(curr_path) > 0:
+        return (curr_path[-1], curr_path)
+        # else:
+        #     return (self.root, curr_path)
     
     def ls(self, where):
         node = self.get_inode(where)
@@ -347,15 +349,20 @@ class DiskManager:
     def run(self):
         while True:
             # get user input
-            curr_path = [self.get_inode(self.root).name] + [self.get_inode(i).name for i in self.current_dir]
+            curr_path = [self.get_inode(i).name for i in self.current_dir]
             print(f"{bcolors.BOLD}{bcolors.OKGREEN}{self.user}{bcolors.ENDC}{bcolors.ENDC}: {bcolors.BOLD}{bcolors.OKBLUE}{'/'.join(curr_path)}{bcolors.ENDC}{bcolors.ENDC}$ ", end='', flush=True)
 
             if self.current_dir:
                 curr_dir = self.current_dir[-1]
             else:
                 curr_dir = self.root
-
-            usr_inp = input().split(" ")
+            
+            try:
+                usr_inp = input().split(" ")
+            except KeyboardInterrupt:
+                print(" Bye!")
+                return
+            
             # print(usr_inp)
             command = usr_inp[0]
 
@@ -376,6 +383,7 @@ class DiskManager:
                 paths = self._resolvePath(usr_inp[1])
                 self.current_dir = paths[1]
                 pass
+            
             elif command == 'ls':
                 try:
                     self.ls(curr_dir)
