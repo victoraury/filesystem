@@ -293,7 +293,8 @@ class DiskManager:
     def _resolvePath(self, pathString):
         curr_path = self.current_dir.copy()
         tokens = pathString.split("/")
-        
+
+        pos = 0
         for t in tokens:
             
             if len(curr_path) > 0:
@@ -350,7 +351,7 @@ class DiskManager:
             print(f"{bcolors.BOLD}{bcolors.OKGREEN}{self.user}{bcolors.ENDC}{bcolors.ENDC}: {bcolors.BOLD}{bcolors.OKBLUE}{'/'.join(curr_path)}{bcolors.ENDC}{bcolors.ENDC}$ ", end='', flush=True)
 
             if self.current_dir:
-                curr_dir = curr_dir[-1]
+                curr_dir = self.current_dir[-1]
             else:
                 curr_dir = self.root
 
@@ -371,8 +372,10 @@ class DiskManager:
                 self.rmdir(curr_dir, usr_inp[1])
                 # except Exception as e:
                 #     print(e)
+            elif command == 'cd':
+                paths = self._resolvePath(usr_inp[1])
+                self.current_dir = paths[1]
                 pass
-            
             elif command == 'ls':
                 try:
                     self.ls(curr_dir)
