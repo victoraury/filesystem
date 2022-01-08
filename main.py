@@ -1,7 +1,5 @@
 import mmap
 import datetime
-from math import log, log2
-import re
 
 DISKSIZE = 128*(2**20)
 BLOCKSIZE = 4*(2**10)
@@ -128,7 +126,7 @@ class DiskManager:
         será o restante (30000 blocos) [2768:32768] em disco
     """
 
-    def __init__(self, diskpath, wipeDisk = False) -> None:
+    def __init__(self, diskpath, user='system', wipeDisk = False) -> None:
 
         if wipeDisk:
             bytearr = bytearray(DISKSIZE)
@@ -147,7 +145,7 @@ class DiskManager:
 
         d = open(diskpath, 'r+b')
         self.disk = mmap.mmap(d.fileno(), 0)
-
+        self.user = user
         self.root = 2
         self.current_dir = []
 
@@ -217,8 +215,17 @@ class DiskManager:
         new = ( old & ~(128 >> bit) )
         self._writeBytes(byte, int.to_bytes(new, 1, 'big', signed=False))
     
+    def get_inode(self, idx):
+        # carrega um inode de um bloco
+        if idx < 2 or idx > 2768:
+            raise Exception('Inode index out of range')
+
+        blocks = idx * BLOCKSIZE
+        return iNode.fromBytes(self._readBytes(blocks, blocks + BLOCKSIZE))
+    
     def set_inode(self, idx, inode):
-        self._writeBytes(idx, inode.toBytes())
+        # escreve um inode em disco
+        self._writeBytes(idx*BLOCKSIZE, inode.toBytes())
 
     def _get_subdir(self, tbl, name):
         l, r = 0, len(tbl) - 1
@@ -237,36 +244,51 @@ class DiskManager:
         return (False, l)
 
     def mkdir(self, where, name):
-        if len(where.table) == 1962:
+        # cria um novo diretório em um inode
+        # recebe o bloco onde o inode está armazenado
+
+
+        parent = self.get_inode(where)
+        # print(where, parent)
+
+        if len(parent.table) == 1962:
             raise Exception('Folder is full, it doesn\'t support more iNodes.')
 
-        new_dir = self._get_subdir(where.table, name)
+        if parent.type != 0:
+            raise Exception(f'{parent.name} is not a directory')
+        
+        (has, pos) = self._get_subdir(parent.table, name)
 
-        if new_dir[0] == True:
-            print(f'Directory "{name}" already exists')
-            return
+        if has:
+            raise FileExistsError(f'Directory "{name}" already exists')
         
         new_dir_block = self._allocate() # aloca um novo inode
 
-        where.table.insert(new_dir[1], new_dir_block)
-        self.set_inode(new_dir_block * BLOCKSIZE, iNode(name, 0, datetime.datetime.now().timestamp(), datetime.datetime.now().timestamp(), 'system'))
+
+        new_dir = iNode(name, 0, datetime.datetime.now().timestamp(), datetime.datetime.now().timestamp(), self.user)
+        # print(f"creating {new_dir} at block {new_dir_block}")
+
+        parent.table.insert(pos, new_dir_block)
+        self.set_inode(where, parent)
+        self.set_inode(new_dir_block, new_dir)
 
     def rmdir(self, where, name):
-        check_dir = self._get_subdir(where.table, name)
-        
-        if check_dir[0] == False:
-            print(f'Directory "{name}" does not exist')
-            return
 
-        dir_idx = where.table[check_dir[1]]
+        parent = self.get_inode(where)
+
+        (has, pos) = self._get_subdir(parent.table, name)
+        
+        if not has:
+            raise FileNotFoundError(f'Directory "{name}" does not exist')
+
+        dir_idx = where.table[pos]
         dir_inode = self.get_inode(dir_idx)
 
         if len(dir_inode.table) > 0:
-            print(f'Directory "{name}" is not empty')
-            return
+            raise Exception(f'Directory "{name}" is not empty')
         
-        self._deallocate(where.table[check_dir[1]])
-        where.table.pop(check_dir[1])
+        self._deallocate(where.table[pos])
+        where.table.pop(pos)
 
     def _resolvePath(self, pathString):
         curr_path = self.current_dir.copy()
@@ -289,16 +311,35 @@ class DiskManager:
             if curr_node.type != 0:
                 raise FileNotFoundError(f'{curr_node.name} is not a directory')
 
-            (has, idx) = self._get_subdir(curr_node.table, t)
+            (has, pos) = self._get_subdir(curr_node.table, t)
+
             if not has:
                 raise FileNotFoundError(f"{curr_node.name}/{t} doens\'t exist")
             else:
-                curr_path.append(idx)
+                curr_path.append(curr_node.table[pos])
                 
         if len(curr_path) > 0:
-            return (idx, curr_path)
+            return (curr_node.table[pos], curr_path)
         else:
             return (self.root, curr_path)
+    
+    def ls(self, where):
+        node = self.get_inode(where)
+
+        if node.type != 0:
+            raise FileNotFoundError(f'{node.name} is not a directory')
+
+        names = []
+        
+        for n in node.table:
+            i = self.get_inode(n)
+
+            if i.type == 0:
+                names.append(f"{bcolors.OKBLUE}{i.name}{bcolors.ENDC}")
+            elif i.type == 1:
+                names.append(i.name)
+        
+        print(" ".join(names))
 
 
     
@@ -306,37 +347,67 @@ class DiskManager:
         while True:
             # get user input
             curr_path = [self.get_inode(self.root).name] + [self.get_inode(i).name for i in self.current_dir]
-            print(f"{bcolors.OKBLUE}{'/'.join(curr_path)}{bcolors.ENDC}$ ", end='', flush=True)
-            usr_inp = input()
+            print(f"{bcolors.BOLD}{bcolors.OKGREEN}{self.user}{bcolors.ENDC}{bcolors.ENDC}: {bcolors.BOLD}{bcolors.OKBLUE}{'/'.join(curr_path)}{bcolors.ENDC}{bcolors.ENDC}$ ", end='', flush=True)
 
+            if self.current_dir:
+                curr_dir = curr_dir[-1]
+            else:
+                curr_dir = self.root
 
-        
-        blocks = idx * BLOCKSIZE
-        return iNode.fromBytes(self._readBytes(blocks, blocks + BLOCKSIZE))
+            usr_inp = input().split(" ")
+            # print(usr_inp)
+            command = usr_inp[0]
+
+            if command == 'mkdir':
+                # (idx, tree) = self._resolvePath(usr_inp[1])
+                # try:
+                self.mkdir(curr_dir, usr_inp[1])
+                # except Exception as e:
+                #     print(e)
+
+            elif command == 'rmdir':
+                # (idx, tree) = self._resolvePath(usr_inp[1])
+                # try:
+                self.rmdir(curr_dir, usr_inp[1])
+                # except Exception as e:
+                #     print(e)
+                pass
+            
+            elif command == 'ls':
+                try:
+                    self.ls(curr_dir)
+                except Exception as e:
+                    print(e)
+
+            else:
+                pass
+
+            
 
 
 
 def test():
-    A = DiskManager('disk.bin', wipeDisk=True)
+    A = DiskManager('disk.bin', wipeDisk=True, user='victor')
+    A.run()
     
-    curr_dir = A.get_inode(2)
-    A.mkdir(curr_dir, 'kek')
-    A.mkdir(curr_dir, 'kekw')
-    print('\nFolders: ')
-    for subdir in curr_dir.table:
-        i = A.get_inode(subdir)
-        print(i)
+    # curr_dir = A.get_inode(2)
+    # A.mkdir(curr_dir, 'kek')
+    # A.mkdir(curr_dir, 'kekw')
+    # print('\nFolders: ')
+    # for subdir in curr_dir.table:
+    #     i = A.get_inode(subdir)
+    #     print(i)
 
-    kek_dir = A.get_inode(3)
-    A.mkdir(kek_dir, 'lol')
-    A.set_inode(3 * BLOCKSIZE, kek_dir)
-    print('kek_dir', kek_dir)
-    A.rmdir(curr_dir, 'kek')
+    # kek_dir = A.get_inode(3)
+    # A.mkdir(kek_dir, 'lol')
+    # A.set_inode(3 * BLOCKSIZE, kek_dir)
+    # print('kek_dir', kek_dir)
+    # A.rmdir(curr_dir, 'kek')
 
-    print('\nFolders: ')
-    for subdir in curr_dir.table:
-        i = A.get_inode(subdir)
-        print(i)
+    # print('\nFolders: ')
+    # for subdir in curr_dir.table:
+    #     i = A.get_inode(subdir)
+    #     print(i)
 
 if __name__ == "__main__":
     test()
