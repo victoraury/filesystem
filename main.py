@@ -1,6 +1,7 @@
 import mmap
 import datetime
 from math import log, log2
+import re
 
 DISKSIZE = 128*(2**20)
 BLOCKSIZE = 4*(2**10)
@@ -15,8 +16,6 @@ def bits(int):
         else:
             yield (True, i)
         mask = mask >> 1
-
-
 
 class iNode:
     """
@@ -93,11 +92,11 @@ class iNode:
     def fromBytes(byteblock):
         blocks = [int.from_bytes(byteblock[i:i+2], 'big', signed=False) for i in range(168, 4096, 2)]
         return iNode(
-            byteblock[0:128].decode('utf-8'),
+            byteblock[0:128].decode('utf-8').rstrip('\00'),
             int.from_bytes(byteblock[128:130], 'big', signed=False),
             int.from_bytes(byteblock[130:134], 'big', signed=False),
             int.from_bytes(byteblock[134:138], 'big', signed=False),
-            byteblock[138:168].decode('utf-8'),
+            byteblock[138:168].decode('utf-8').rstrip('\00'),
             [block for block in blocks if block != 65535]
         )
 
@@ -203,19 +202,84 @@ class DiskManager:
         new = ( old & ~(128 >> bit) )
         self._writeBytes(byte, int.to_bytes(new, 1, 'big', signed=False))
     
-    
+    def get_inode(self, idx):
+        if idx < 2 or idx > 2768:
+            raise Exception('Inode index out of range')
         
+        blocks = idx * BLOCKSIZE
+        return iNode.fromBytes(self._readBytes(blocks, blocks + BLOCKSIZE))
 
+    def set_inode(self, idx, inode):
+        self._writeBytes(idx, inode.toBytes())
+
+    def _get_subdir(self, tbl, name):
+        l, r = 0, len(tbl) - 1
+
+        while l <= r:
+            m = (l+r)//2
+
+            temp_inode = self.get_inode(tbl[m])
+            if temp_inode.name == name:
+                return (True, m)
+            if temp_inode.name > name:
+                r = m - 1
+            else:
+                l = m + 1
+            
+        return (False, l)
+
+    def mkdir(self, where, name):
+        if len(where.table) == 1962:
+            raise Exception('Folder is full, it doesn\'t support more iNodes.')
+
+        new_dir = self._get_subdir(where.table, name)
+
+        if new_dir[0] == True:
+            print(f'Directory "{name}" already exists')
+            return
+        
+        new_dir_block = self._allocate() # aloca um novo inode
+
+        where.table.insert(new_dir[1], new_dir_block)
+        self.set_inode(new_dir_block * BLOCKSIZE, iNode(name, 0, datetime.datetime.now().timestamp(), datetime.datetime.now().timestamp(), 'system'))
+
+    def rmdir(self, where, name):
+        check_dir = self._get_subdir(where.table, name)
+        
+        if check_dir[0] == False:
+            print(f'Directory "{name}" does not exist')
+            return
+
+        dir_idx = where.table[check_dir[1]]
+        dir_inode = self.get_inode(dir_idx)
+
+        if len(dir_inode.table) > 0:
+            print(f'Directory "{name}" is not empty')
+            return
+        
+        self._deallocate(where.table[check_dir[1]])
+        where.table.pop(check_dir[1])
 def test():
-    A = DiskManager('disk.bin', wipeDisk=False)
-    a = A._allocate()
-    print(a)
-    # A._deallocate(i)
+    A = DiskManager('disk.bin', wipeDisk=True)
+    
+    curr_dir = A.get_inode(2)
+    A.mkdir(curr_dir, 'kek')
+    A.mkdir(curr_dir, 'kekw')
+    print('\nFolders: ')
+    for subdir in curr_dir.table:
+        i = A.get_inode(subdir)
+        print(i)
 
-    # print(iNode.fromBytes(A._readBytes(A.INODESTART, A.INODESTART + BLOCKSIZE)))
-    pass
+    kek_dir = A.get_inode(3)
+    A.mkdir(kek_dir, 'lol')
+    A.set_inode(3 * BLOCKSIZE, kek_dir)
+    print('kek_dir', kek_dir)
+    A.rmdir(curr_dir, 'kek')
 
-
+    print('\nFolders: ')
+    for subdir in curr_dir.table:
+        i = A.get_inode(subdir)
+        print(i)
 if __name__ == "__main__":
     test()
     pass
