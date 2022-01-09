@@ -243,13 +243,11 @@ class DiskManager:
             
         return (False, l)
 
-    def mkdir(self, where, name):
+    def mkdir(self, where, name, table=[]):
         # cria um novo diretório em um inode
         # recebe o bloco onde o inode está armazenado
 
-
         parent = self.get_inode(where)
-        # print(where, parent)
 
         if len(parent.table) == 1962:
             raise Exception('Folder is full, it doesn\'t support more iNodes.')
@@ -265,7 +263,7 @@ class DiskManager:
         new_dir_block = self._allocate() # aloca um novo inode
 
 
-        new_dir = iNode(name, 0, datetime.datetime.now().timestamp(), datetime.datetime.now().timestamp(), self.user)
+        new_dir = iNode(name, 0, datetime.datetime.now().timestamp(), datetime.datetime.now().timestamp(), self.user, table)
         # print(f"creating {new_dir} at block {new_dir_block}")
 
         parent.table.insert(pos, new_dir_block)
@@ -281,14 +279,15 @@ class DiskManager:
         if not has:
             raise FileNotFoundError(f'Directory "{name}" does not exist')
 
-        dir_idx = where.table[pos]
+        dir_idx = parent.table[pos]
         dir_inode = self.get_inode(dir_idx)
 
         if len(dir_inode.table) > 0:
             raise Exception(f'Directory "{name}" is not empty')
         
-        self._deallocate(where.table[pos])
-        where.table.pop(pos)
+        self._deallocate(dir_idx)
+        parent.table.pop(pos)
+        self.set_inode(where, parent)
 
     def _resolvePath(self, pathString):
         curr_path = self.current_dir.copy()
@@ -344,13 +343,41 @@ class DiskManager:
         
         print(" ".join(names))
 
+    def mvdir(self, fr, to):
+        pfrom = self._resolvePath(fr)
+        useName = False
 
-    
+        try:
+            pto = self._resolvePath(to)
+        except Exception: # destination folder doesnt exist
+            parts = to.rstrip('/').split('/')
+            useName = parts[-1]
+
+            parent_idx = 2
+            
+            if len(parts) > 1:
+                pto = self._resolvePath('/'.join(parts[0:-1]))
+                parent_idx = pto[1][-1]
+
+            from_inode = self.get_inode(pfrom[1][-1])
+            self.mkdir(parent_idx, useName, from_inode.table)
+            self.rmdir(pfrom[1][-2], self.get_inode(pfrom[1][-1]).name)
+            return
+
+        # destination folder exists
+        orig_inode = self.get_inode(pfrom[1][-1])
+        dest_inode = self.get_inode(pto[1][-1])
+        if len(orig_inode.table) > 0 or len(dest_inode.table) > 0:
+            raise Exception('Folders must be empty')
+
+        self.rmdir(pfrom[1][-2], orig_inode.name)
+        dest_inode.modified = int(datetime.datetime.now().timestamp())
+        self.set_inode(pto[1][-1], dest_inode)
     def run(self):
         while True:
             # get user input
             curr_path = [self.get_inode(i).name for i in self.current_dir]
-            print(f"{bcolors.BOLD}{bcolors.OKGREEN}{self.user}{bcolors.ENDC}{bcolors.ENDC}: {bcolors.BOLD}{bcolors.OKBLUE}{'/'.join(curr_path)}{bcolors.ENDC}{bcolors.ENDC}$ ", end='', flush=True)
+            print(f"{bcolors.BOLD}{bcolors.OKGREEN}{self.user}{bcolors.ENDC}{bcolors.ENDC}@{bcolors.BOLD}{bcolors.OKBLUE}{'/'.join(curr_path)}{bcolors.ENDC}{bcolors.ENDC}$ ", end='', flush=True)
 
             if self.current_dir:
                 curr_dir = self.current_dir[-1]
@@ -366,64 +393,35 @@ class DiskManager:
             # print(usr_inp)
             command = usr_inp[0]
 
-            if command == 'mkdir':
-                # (idx, tree) = self._resolvePath(usr_inp[1])
-                # try:
-                self.mkdir(curr_dir, usr_inp[1])
-                # except Exception as e:
-                #     print(e)
-
-            elif command == 'rmdir':
-                # (idx, tree) = self._resolvePath(usr_inp[1])
-                # try:
-                self.rmdir(curr_dir, usr_inp[1])
-                # except Exception as e:
-                #     print(e)
-            elif command == 'cd':
-                paths = self._resolvePath(usr_inp[1])
-                self.current_dir = paths[1]
-                pass
-            
-            elif command == 'ls':
-                try:
+            try:
+                if command == 'mkdir':
+                    self.mkdir(curr_dir, usr_inp[1])
+                elif command == 'rmdir':
+                    self.rmdir(curr_dir, usr_inp[1])
+                elif command == 'cd':
+                    paths = self._resolvePath(usr_inp[1])
+                    self.current_dir = paths[1]
+                elif command == 'mv':
+                    if len(usr_inp) != 3:
+                        raise Exception('Bad arguments.')
+                        
+                    fr, to = usr_inp[1:3]
+                    self.mvdir(fr, to)
+                elif command == 'ls':
                     self.ls(curr_dir)
-                except Exception as e:
-                    print(e)
-
-            else:
-                pass
+                else:
+                    pass
+            except Exception as e:
+                print(command, e)
 
             
-
-
-
 def test():
-    A = DiskManager('disk.bin', wipeDisk=True, user='victor')
+    A = DiskManager('disk.bin', wipeDisk=False, user='victor')
     A.run()
-    
-    # curr_dir = A.get_inode(2)
-    # A.mkdir(curr_dir, 'kek')
-    # A.mkdir(curr_dir, 'kekw')
-    # print('\nFolders: ')
-    # for subdir in curr_dir.table:
-    #     i = A.get_inode(subdir)
-    #     print(i)
-
-    # kek_dir = A.get_inode(3)
-    # A.mkdir(kek_dir, 'lol')
-    # A.set_inode(3 * BLOCKSIZE, kek_dir)
-    # print('kek_dir', kek_dir)
-    # A.rmdir(curr_dir, 'kek')
-
-    # print('\nFolders: ')
-    # for subdir in curr_dir.table:
-    #     i = A.get_inode(subdir)
-    #     print(i)
 
 if __name__ == "__main__":
     test()
     pass
-
 
 # REQUIREMENTS:
 
