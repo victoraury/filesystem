@@ -158,6 +158,7 @@ class DiskManager:
             return self.disk[start:end]
     
     def _writeBytes(self, atIndex, bytes):
+        # print(f"writing {bytes} at {atIndex}")
         # escreve "bytes" no disco a partir do byte "atIndex"
         self.disk[atIndex: atIndex+len(bytes)] = bytes
         self.disk.flush()
@@ -175,25 +176,24 @@ class DiskManager:
             blocks[-1].extend(bytearray(BLOCKSIZE - len(blocks[-1])))
 
         return blocks
-    
+        
     def _allocate(self, type='inode') -> int:
         # aloca um bloco na tabela de alocação e retorna o índice
         if type == 'inode':
-            byterange = self._readBytes(0, 221)
+            byterange = range(0, 221)
         elif type == 'data':
-            byterange = self._readBytes(221, 2*BLOCKSIZE)
+            byterange = range(221, 2*BLOCKSIZE)
         else:
             raise Exception()
         
         # encontra o byte com algum bit 0
         byte_index = 0
         byte_value = 0
-        while byte_index < len(byterange):
-            byte_value = int.from_bytes(byterange[byte_index:byte_index+1], 'big', signed=False)
+        for i in byterange:
+            byte_index = i
+            byte_value = int.from_bytes(self._readBytes(i, i+1), 'big', signed=False)
             if byte_value != 255:
                 break
-            else:
-                byte_index += 1
         else:
             raise Exception('AllocationError')
         
@@ -354,7 +354,7 @@ class DiskManager:
         print(" ".join(names))
     
     def mvdir(self, origin, destiny):
-        # move um diretório para outro
+        # move um diretório ou arquivo para outro diretorio
         (origin_address, parent_address) = self._resolvePath(origin)
         parent_address = parent_address[-2]
         destiny_address = self._resolvePath(destiny)[0]
@@ -454,6 +454,36 @@ class DiskManager:
         parent.table.pop(idx)
         self.set_inode(where, parent)
 
+    def echo(self, path, content):
+        address = self._resolvePath(path)[0]
+        node = self.get_inode(address)
+
+        if node.type != 1:
+            raise Exception(f"{node.name} is not a file!")
+        
+        encoded = bytearray(content, 'utf-8')
+        chunks = self._blockify(encoded)
+
+        if len(chunks) > 1962:
+            raise Exception(f"Data exceeds maximum file size")
+        
+        # se o novo precisar de mais blocos do que o anterior
+        if len(chunks) < len(node.table):
+            for i in range(len(node.table) - len(chunks)):
+                self._deallocate(node.table.pop())
+        # se precisar de mais
+        else:
+            for i in range(len(chunks) - len(node.table)):
+                node.table.append(self._allocate(type='data'))
+        
+        
+        # grava os dados nos blocks
+        for i in range(len(chunks)):
+            self._writeBytes(node.table[i]*BLOCKSIZE, chunks[i])
+        
+        # atualiza o inode em disco
+        self.set_inode(address, node)
+        
     def run(self):
         while True:
             # get user input
@@ -471,7 +501,6 @@ class DiskManager:
                 print(" Bye!")
                 return
             
-            # print(usr_inp)
             command = usr_inp[0]
 
             try:
@@ -482,11 +511,7 @@ class DiskManager:
                     self.rmdir(curr_dir, usr_inp[1])
 
                 elif command == 'mvdir':
-                    if len(usr_inp) != 3:
-                        raise Exception('Bad arguments.')
-                        
-                    fr, to = usr_inp[1:3]
-                    self.mvdir(fr, to)
+                    self.mvdir(usr_inp[1], usr_inp[2])
 
                 elif command == 'cd':
                     paths = self._resolvePath(usr_inp[1])
@@ -494,7 +519,6 @@ class DiskManager:
                 
                 elif command == 'mv':
                     self.mv(usr_inp[1], usr_inp[2])
-
 
                 elif command == 'ls':
                     self.ls(curr_dir)
@@ -504,6 +528,19 @@ class DiskManager:
 
                 elif command == 'rm':
                     self.rm(curr_dir, usr_inp[1])
+                
+                elif command == 'echo':
+                    print(usr_inp)
+                    try:
+                        data = " ".join(usr_inp[1:]).split('>>')[0].split("\"")
+                    except:
+                        raise Exception("Bad input")
+
+                    if len(data) != 3:
+                        print(len(data))
+                        raise Exception("Bad input")
+
+                    self.echo(usr_inp[-1], data[1])
 
                 else:
                     pass
@@ -524,17 +561,17 @@ if __name__ == "__main__":
 
 # Operações sobre arquivos:
 
-#     - Criar arquivo (touch arquivo)
-#     - Remover arquivo (rm arquivo)
-#     - Escrever no arquivo (echo "conteudo legal" >> arquivo)
+#    DONE - Criar arquivo (touch arquivo)
+#    DONE - Remover arquivo (rm arquivo)
+#    DONE - Escrever no arquivo (echo "conteudo legal" >> arquivo)
 #     - Ler arquivo (cat arquivo)
 #     - Copiar arquivo (cp arquivo1 arquivo2)
 #     - Renomear arquivo (mv arquivo1 arquivo2)
 
 # Operações sobre diretórios:
 
-#     - Criar diretório (mkdir diretorio)
-#     - Remover diretório (rmdir diretorio) - só funciona se diretório estiver vazio
-#     - Trocar de diretório (cd diretorio)
-#         * Não esquecer dos arquivos especiais . e .. 
-#     - Renomear diretorio (mv diretorio1 diretorio2)
+#    DONE - Criar diretório (mkdir diretorio)  
+#    DONE - Remover diretório (rmdir diretorio) - só funciona se diretório estiver vazio
+#    DONE - Trocar de diretório (cd diretorio)
+#           * Não esquecer dos arquivos especiais . e .. 
+#    DONE - Renomear diretorio (mv diretorio1 diretorio2)
