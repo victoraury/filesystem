@@ -243,19 +243,28 @@ class DiskManager:
             
         return (False, l)
 
-    def mkdir(self, where, name, table=[]):
+    def mkdir(self, path):
         # cria um novo diretório em um inode
-        # recebe o bloco onde o inode está armazenado
 
-        parent = self.get_inode(where)
-
-        if len(parent.table) == 1962:
+        # se nao tiver / é na pasta atual
+        if "/" in path:
+            where_name = path.split("/")
+            name = where_name[-1]
+            where = self._resolvePath( "/".join(where_name[:-1]) )[0]
+        else:
+            where = self.current_dir[-1]
+            name = path
+        
+        destiny = self.get_inode(where)
+        
+        if len(destiny.table) == 1962:
             raise Exception('Folder is full, it doesn\'t support more iNodes.')
 
-        if parent.type != 0:
-            raise Exception(f'{parent.name} is not a directory')
+        if destiny.type != 0:
+            raise Exception(f'{destiny.name} is not a directory')
         
-        (has, pos) = self._get_subdir(parent.table, name)
+        # checa se já existe inode com mesmo nome
+        (has, pos) = self._get_subdir(destiny.table, name)
 
         if has:
             raise FileExistsError(f'Directory "{name}" already exists')
@@ -263,12 +272,13 @@ class DiskManager:
         new_dir_block = self._allocate() # aloca um novo inode
 
 
-        new_dir = iNode(name, 0, datetime.datetime.now().timestamp(), datetime.datetime.now().timestamp(), self.user, table)
+        new_dir = iNode(name, 0, datetime.datetime.now().timestamp(), datetime.datetime.now().timestamp(), self.user)
         # print(f"creating {new_dir} at block {new_dir_block}")
 
-        parent.table.insert(pos, new_dir_block)
-        self.set_inode(where, parent)
+        destiny.table.insert(pos, new_dir_block)
+        self.set_inode(where, destiny)
         self.set_inode(new_dir_block, new_dir)
+
 
     def rmdir(self, where, name):
 
@@ -326,6 +336,7 @@ class DiskManager:
         #     return (self.root, curr_path)
     
     def ls(self, where):
+        # lista os diretórios/arquivos do dir atual
         node = self.get_inode(where)
 
         if node.type != 0:
@@ -342,37 +353,72 @@ class DiskManager:
                 names.append(i.name)
         
         print(" ".join(names))
+    
+    def mvdir(self, origin, destiny):
+        # move um diretório para outro
+        (origin_address, parent_address) = self._resolvePath(origin)
+        parent_address = parent_address[-2]
+        destiny_address = self._resolvePath(destiny)[0]
 
-    def mvdir(self, fr, to):
-        pfrom = self._resolvePath(fr)
-        useName = False
+        orig = self.get_inode(origin_address)
+        par = self.get_inode(parent_address)
+        dest = self.get_inode(destiny_address)
 
-        try:
-            pto = self._resolvePath(to)
-        except Exception: # destination folder doesnt exist
-            parts = to.rstrip('/').split('/')
-            useName = parts[-1]
+        if len(par.table) == 1962:
+            raise Exception('Folder is full, it doesn\'t support more iNodes.')
 
-            parent_idx = 2
-            
-            if len(parts) > 1:
-                pto = self._resolvePath('/'.join(parts[0:-1]))
-                parent_idx = pto[1][-1]
+        if par.type != 0:
+            raise Exception(f'{par.name} is not a directory')
 
-            from_inode = self.get_inode(pfrom[1][-1])
-            self.mkdir(parent_idx, useName, from_inode.table)
-            self.rmdir(pfrom[1][-2], self.get_inode(pfrom[1][-1]).name)
-            return
+        # checa se dir já existe no dir destino
+        (has, pos) = self._get_subdir(dest.table, orig.name)
+        if has:
+            raise Exception(f"Directory {destiny}/{orig.name} already exists")
 
-        # destination folder exists
-        orig_inode = self.get_inode(pfrom[1][-1])
-        dest_inode = self.get_inode(pto[1][-1])
-        if len(orig_inode.table) > 0 or len(dest_inode.table) > 0:
-            raise Exception('Folders must be empty')
+        # insere o endereço na tabela do dir destino
+        dest.table.insert(pos, origin_address)
 
-        self.rmdir(pfrom[1][-2], orig_inode.name)
-        dest_inode.modified = int(datetime.datetime.now().timestamp())
-        self.set_inode(pto[1][-1], dest_inode)
+        # remove do parent da origem
+        (has, pos) = self._get_subdir(par.table, orig.name)
+        par.table.pop(pos)
+
+        dest.modified = int(datetime.datetime.now().timestamp())
+
+        # atualiza parent e destino em disco
+        self.set_inode(parent_address, par)
+        self.set_inode(destiny_address, dest)
+
+    def mv(self, where, name):
+        # renomeia um arquivo ou diretorio
+        address, parent_address = self._resolvePath(where)
+        
+        if address == self.root:
+            raise Exception("You can\'t rename your root directory")
+        
+        parent_address = parent_address[-2]
+
+        par = self.get_inode(parent_address)
+        node = self.get_inode(address)
+
+        # checa se já existe um node com o mesmo nome
+        (has, pos) = self._get_subdir(par.table, name)
+        if has:
+            d = "/".join(where.split("/")[:-1]) + name
+            raise Exception(f"{d} already exists!")
+
+        # retira o node com nome antigo da tabela
+        (has, pos) = self._get_subdir(par.table, node.name)
+        par.table.pop(pos)
+
+        # insere com novo nome
+        (has, pos) = self._get_subdir(par.table, name)
+        par.table.insert(pos, address)
+
+        # atualiza em disco
+        node.name = name
+        self.set_inode(address, node)
+        self.set_inode(parent_address, par)
+
 
     def touch(self, where, name):
         if '/' in name:
@@ -426,32 +472,44 @@ class DiskManager:
 
             try:
                 if command == 'mkdir':
-                    self.mkdir(curr_dir, usr_inp[1])
+                    self.mkdir(usr_inp[1])
+
                 elif command == 'rmdir':
                     self.rmdir(curr_dir, usr_inp[1])
-                elif command == 'cd':
-                    paths = self._resolvePath(usr_inp[1])
-                    self.current_dir = paths[1]
-                elif command == 'mv':
+
+                elif command == 'mvdir':
                     if len(usr_inp) != 3:
                         raise Exception('Bad arguments.')
                         
                     fr, to = usr_inp[1:3]
                     self.mvdir(fr, to)
+
+                elif command == 'cd':
+                    paths = self._resolvePath(usr_inp[1])
+                    self.current_dir = paths[1]
+                
+                elif command == 'mv':
+                    self.mv(usr_inp[1], usr_inp[2])
+
+
                 elif command == 'ls':
                     self.ls(curr_dir)
+
                 elif command == 'touch':
                     self.touch(curr_dir, usr_inp[1])
+
                 elif command == 'rm':
                     self.rm(curr_dir, usr_inp[1])
+
                 else:
                     pass
+
             except Exception as e:
-                print(command, e)
+                print(command, e.with_traceback())
 
             
 def test():
-    A = DiskManager('disk.bin', wipeDisk=False, user='victor')
+    A = DiskManager('disk.bin', wipeDisk=True, user='victor')
     A.run()
 
 if __name__ == "__main__":
