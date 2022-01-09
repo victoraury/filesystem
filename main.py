@@ -373,6 +373,23 @@ class DiskManager:
         self.rmdir(pfrom[1][-2], orig_inode.name)
         dest_inode.modified = int(datetime.datetime.now().timestamp())
         self.set_inode(pto[1][-1], dest_inode)
+
+    def touch(self, where, name):
+        if '/' in name:
+            raise Exception('Bad file name')
+
+        parent = self.get_inode(where)
+
+        (has, idx) = self._get_subdir(parent.table, name)
+
+        if has:
+            raise Exception('File already exists')
+
+        new_file = iNode(name, 1, datetime.datetime.now().timestamp(), datetime.datetime.now().timestamp(), self.user, [])
+        file_idx = self._allocate()
+        self.set_inode(file_idx, new_file)
+        parent.table.insert(idx, file_idx)
+        self.set_inode(where, parent)
     def run(self):
         while True:
             # get user input
@@ -409,6 +426,8 @@ class DiskManager:
                     self.mvdir(fr, to)
                 elif command == 'ls':
                     self.ls(curr_dir)
+                elif command == 'touch':
+                    self.touch(curr_dir, usr_inp[1])
                 else:
                     pass
             except Exception as e:
