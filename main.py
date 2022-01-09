@@ -418,18 +418,24 @@ class DiskManager:
         self.set_inode(address, node)
         self.set_inode(parent_address, par)
 
-    def touch(self, where, name):
-        if '/' in name:
-            raise Exception('Bad file name')
+    def touch(self, where, path):
+        parts = path.split('/')
+        
+        if len(parts) > 1:
+            file_name = parts[-1]
+            file_path = '/'.join(parts[0:-1])
+            res = self._resolvePath(file_path)
+            where = res[1][-1]
+        else:
+            file_name = parts[0]
 
         parent = self.get_inode(where)
+        (has, idx) = self._get_subdir(parent.table, file_name)
 
-        (has, idx) = self._get_subdir(parent.table, name)
- 
         if has:
-            raise Exception('File already exists')
+            raise Exception(f'File "{file_name}" already exists')
 
-        new_file = iNode(name, 1, datetime.datetime.now().timestamp(), datetime.datetime.now().timestamp(), self.user, [])
+        new_file = iNode(file_name, 1, datetime.datetime.now().timestamp(), datetime.datetime.now().timestamp(), self.user, [])
         file_idx = self._allocate()
         self.set_inode(file_idx, new_file)
         parent.table.insert(idx, file_idx)
