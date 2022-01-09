@@ -243,7 +243,7 @@ class DiskManager:
             
         return (False, l)
 
-    def mkdir(self, path):
+    def mkdir(self, path, table=[]):
         # cria um novo diretório em um inode
 
         # se nao tiver / é na pasta atual
@@ -272,7 +272,7 @@ class DiskManager:
         new_dir_block = self._allocate() # aloca um novo inode
 
 
-        new_dir = iNode(name, 0, datetime.datetime.now().timestamp(), datetime.datetime.now().timestamp(), self.user)
+        new_dir = iNode(name, 0, datetime.datetime.now().timestamp(), datetime.datetime.now().timestamp(), self.user, table)
         # print(f"creating {new_dir} at block {new_dir_block}")
 
         destiny.table.insert(pos, new_dir_block)
@@ -354,70 +354,102 @@ class DiskManager:
         
         print(" ".join(names))
     
-    def mvdir(self, origin, destiny):
-        # move um diretório para outro
-        (origin_address, parent_address) = self._resolvePath(origin)
-        parent_address = parent_address[-2]
-        destiny_address = self._resolvePath(destiny)[0]
+    # def mvdir(self, origin, destiny):
+    #     # move um diretório para outro
+    #     (origin_address, parent_address) = self._resolvePath(origin)
+    #     parent_address = parent_address[-2]
+    #     destiny_address = self._resolvePath(destiny)[0]
 
-        orig = self.get_inode(origin_address)
-        par = self.get_inode(parent_address)
-        dest = self.get_inode(destiny_address)
+    #     orig = self.get_inode(origin_address)
+    #     par = self.get_inode(parent_address)
+    #     dest = self.get_inode(destiny_address)
 
-        if len(par.table) == 1962:
-            raise Exception('Folder is full, it doesn\'t support more iNodes.')
+    #     if len(par.table) == 1962:
+    #         raise Exception('Folder is full, it doesn\'t support more iNodes.')
 
-        if par.type != 0:
-            raise Exception(f'{par.name} is not a directory')
+    #     if par.type != 0:
+    #         raise Exception(f'{par.name} is not a directory')
 
-        # checa se dir já existe no dir destino
-        (has, pos) = self._get_subdir(dest.table, orig.name)
-        if has:
-            raise Exception(f"Directory {destiny}/{orig.name} already exists")
+    #     # checa se dir já existe no dir destino
+    #     (has, pos) = self._get_subdir(dest.table, orig.name)
+    #     if has:
+    #         raise Exception(f"Directory {destiny}/{orig.name} already exists")
 
-        # insere o endereço na tabela do dir destino
-        dest.table.insert(pos, origin_address)
+    #     # insere o endereço na tabela do dir destino
+    #     dest.table.insert(pos, origin_address)
 
-        # remove do parent da origem
-        (has, pos) = self._get_subdir(par.table, orig.name)
-        par.table.pop(pos)
+    #     # remove do parent da origem
+    #     (has, pos) = self._get_subdir(par.table, orig.name)
+    #     par.table.pop(pos)
 
-        dest.modified = int(datetime.datetime.now().timestamp())
+    #     dest.modified = int(datetime.datetime.now().timestamp())
 
-        # atualiza parent e destino em disco
-        self.set_inode(parent_address, par)
-        self.set_inode(destiny_address, dest)
+    #     # atualiza parent e destino em disco
+    #     self.set_inode(parent_address, par)
+    #     self.set_inode(destiny_address, dest)
 
-    def mv(self, where, name):
-        # renomeia um arquivo ou diretorio
-        address, parent_address = self._resolvePath(where)
+    # def mv(self, where, name):
+    #     # renomeia um arquivo ou diretorio
+    #     address, parent_address = self._resolvePath(where)
         
-        if address == self.root:
-            raise Exception("You can\'t rename your root directory")
+    #     if address == self.root:
+    #         raise Exception("You can\'t rename your root directory")
         
-        parent_address = parent_address[-2]
+    #     parent_address = parent_address[-2]
 
-        par = self.get_inode(parent_address)
-        node = self.get_inode(address)
+    #     par = self.get_inode(parent_address)
+    #     node = self.get_inode(address)
 
-        # checa se já existe um node com o mesmo nome
-        (has, pos) = self._get_subdir(par.table, name)
-        if has:
-            d = "/".join(where.split("/")[:-1]) + name
-            raise Exception(f"{d} already exists!")
+    #     # checa se já existe um node com o mesmo nome
+    #     (has, pos) = self._get_subdir(par.table, name)
+    #     if has:
+    #         d = "/".join(where.split("/")[:-1]) + name
+    #         raise Exception(f"{d} already exists!")
 
-        # retira o node com nome antigo da tabela
-        (has, pos) = self._get_subdir(par.table, node.name)
-        par.table.pop(pos)
+    #     # retira o node com nome antigo da tabela
+    #     (has, pos) = self._get_subdir(par.table, node.name)
+    #     par.table.pop(pos)
 
-        # insere com novo nome
-        (has, pos) = self._get_subdir(par.table, name)
-        par.table.insert(pos, address)
+    #     # insere com novo nome
+    #     (has, pos) = self._get_subdir(par.table, name)
+    #     par.table.insert(pos, address)
 
-        # atualiza em disco
-        node.name = name
-        self.set_inode(address, node)
-        self.set_inode(parent_address, par)
+    #     # atualiza em disco
+    #     node.name = name
+    #     self.set_inode(address, node)
+    #     self.set_inode(parent_address, par)
+
+    def mvdir(self, fr, to):
+        pfrom = self._resolvePath(fr)
+        useName = False
+
+
+        try:
+            pto = self._resolvePath(to)
+        except Exception: # destination folder doesnt exist
+            parts = to.rstrip('/').split('/')
+            useName = parts[-1]
+
+            parent_idx = 2
+
+            if len(parts) > 1:
+                pto = self._resolvePath('/'.join(parts[0:-1]))
+                parent_idx = pto[1][-1]
+
+            from_inode = self.get_inode(pfrom[1][-1])
+            self.mkdir(parent_idx, useName, from_inode.table)
+            self.rmdir(pfrom[1][-2], self.get_inode(pfrom[1][-1]).name)
+            return
+
+        # destination folder exists
+        orig_inode = self.get_inode(pfrom[1][-1])
+        dest_inode = self.get_inode(pto[1][-1])
+        if len(orig_inode.table) > 0 or len(dest_inode.table) > 0:
+            raise Exception('Folders must be empty')
+
+        self.rmdir(pfrom[1][-2], orig_inode.name)
+        dest_inode.modified = int(datetime.datetime.now().timestamp())
+        self.set_inode(pto[1][-1], dest_inode)
 
 
     def touch(self, where, name):
