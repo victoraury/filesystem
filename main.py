@@ -390,6 +390,20 @@ class DiskManager:
         self.set_inode(file_idx, new_file)
         parent.table.insert(idx, file_idx)
         self.set_inode(where, parent)
+
+    def rm(self, where, name):
+        parent = self.get_inode(where)
+
+        (has, idx) = self._get_subdir(parent.table, name)
+
+        if not has or self.get_inode(parent.table[idx]).type != 1:
+            raise Exception('File doesn\'t exist')
+
+        # TO DO: FREE WRITTEN BLOCKS
+        self._deallocate(parent.table[idx])
+        parent.table.pop(idx)
+        self.set_inode(where, parent)
+
     def run(self):
         while True:
             # get user input
@@ -428,6 +442,8 @@ class DiskManager:
                     self.ls(curr_dir)
                 elif command == 'touch':
                     self.touch(curr_dir, usr_inp[1])
+                elif command == 'rm':
+                    self.rm(curr_dir, usr_inp[1])
                 else:
                     pass
             except Exception as e:
