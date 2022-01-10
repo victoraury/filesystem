@@ -1,5 +1,6 @@
 import mmap
 import datetime
+import traceback
 
 DISKSIZE = 128*(2**20)
 BLOCKSIZE = 4*(2**10)
@@ -335,6 +336,7 @@ class DiskManager:
         #     return (self.root, curr_path)
     
     def _path_split(self, path):
+        path = path.rstrip('/')
         parts = path.split('/')
 
         return ('/'.join(parts[0:-1]), parts[-1])
@@ -434,9 +436,8 @@ class DiskManager:
 
     def touch(self, where, path):
         (parent_idx, file_name) = self._file_from_path(where, path)
-        parts = path.split('/')
-        
         parent = self.get_inode(parent_idx)
+
         (has, idx) = self._get_subdir(parent.table, file_name)
 
         if has:
@@ -511,7 +512,60 @@ class DiskManager:
             chunk_data = self._readBytes(chunk_start, chunk_start + BLOCKSIZE)
             
             print(chunk_data.rstrip(b'\x00').decode('utf-8'))
+    
+    def cp(self, where, src, dest):
+        (src_idx, src_name) = self._file_from_path(where, src)
+
+        src_parent = self.get_inode(src_idx)
+        (src_has, src_idx) = self._get_subdir(src_parent.table, src_name)
+
+        if not src_has: # source file must exist
+            raise FileNotFoundError(f'File "{src}" doesnt\'t exist')
+
+        src_inode = self.get_inode(src_parent.table[src_idx])
+        
+        (dest_idx, dest_name) = self._file_from_path(where, dest)
+
+        dest_parent = self.get_inode(dest_idx)
+        (dest_has, dest_idx) = self._get_subdir(dest_parent.table, dest_name)
+
+        nfile_name = ''
+        dest_inode = None
+        if dest_has: 
+            dest_inode = self.get_inode(dest_parent.table[dest_idx])
+
+            if dest_inode.type == 0:
+                nfile_name = src_name
+            else:
+                nfile_name = dest_name
+        else:
+            nfile_name = dest_name
+            dest_inode = dest_parent
+
+        file_inode = iNode(nfile_name, 1, datetime.datetime.now().timestamp(), datetime.datetime.now().timestamp(), self.user, [])
             
+        for chunk_idx in src_inode.table:
+            chunk_start = chunk_idx*BLOCKSIZE
+            chunk_data = self._readBytes(chunk_start, chunk_start + BLOCKSIZE)
+
+            new_idx = self._allocate(type='data')
+            file_inode.table.append(new_idx)
+            self._writeBytes(new_idx * BLOCKSIZE, chunk_data)
+        
+        if dest_inode.type == 0:
+            inode_idx = self._allocate()
+            (has, table_idx) = self._get_subdir(dest_inode.table, nfile_name)
+            dest_inode.table.insert(table_idx, inode_idx)
+            self.set_inode(inode_idx, file_inode)
+        else:
+            for block in dest_inode.table: # free blocks used for data by the file
+                self._deallocate(block)
+
+            dest_inode.name = file_inode.name
+            dest_inode.table = file_inode.table
+
+        self.set_inode(dest_parent.table[dest_idx], dest_inode)
+                
     def run(self):
         while True:
             # get user input
@@ -572,12 +626,13 @@ class DiskManager:
 
                 elif command == 'cat':
                     self.cat(usr_inp[1])
-
+                elif command == 'cp':
+                    self.cp(curr_dir, usr_inp[1], usr_inp[2])
                 else:
                     pass
 
             except Exception as e:
-                print(command, e)
+                print(f'[{command}] {traceback.format_exc()}')
 
             
 def test():
@@ -595,7 +650,7 @@ if __name__ == "__main__":
 #    DONE - Criar arquivo (touch arquivo)
 #    DONE - Remover arquivo (rm arquivo)
 #    DONE - Escrever no arquivo (echo "conteudo legal" >> arquivo)
-#     - Ler arquivo (cat arquivo)
+#    DONE - Ler arquivo (cat arquivo)
 #     - Copiar arquivo (cp arquivo1 arquivo2)
 #     - Renomear arquivo (mv arquivo1 arquivo2)
 
