@@ -446,11 +446,17 @@ class DiskManager:
 
         (has, idx) = self._get_subdir(parent.table, name)
 
-        if not has or self.get_inode(parent.table[idx]).type != 1:
-            raise Exception('File doesn\'t exist')
+        if not has:
+            raise FileNotFoundError('File doesn\'t exist')
 
-        # TO DO: FREE WRITTEN BLOCKS
-        self._deallocate(parent.table[idx])
+        file_inode = self.get_inode(parent.table[idx])
+        if file_inode.type != 1:
+            raise FileNotFoundError(f'"{file_inode.name}" is not a file!')
+
+        for block in file_inode.table: # free blocks used for data by the file
+            self._deallocate(block)
+
+        self._deallocate(parent.table[idx]) # free the file inode
         parent.table.pop(idx)
         self.set_inode(where, parent)
 
@@ -488,6 +494,9 @@ class DiskManager:
         resolved_path = self._resolvePath(path)
         where = resolved_path[0]
         file_inode = self.get_inode(where)
+
+        if file_inode.type != 1:
+            raise FileNotFoundError(f'"{file_inode.name}" is not a file!')
 
         for chunk_idx in file_inode.table:
             chunk_start = chunk_idx*BLOCKSIZE
@@ -552,8 +561,10 @@ class DiskManager:
                         raise Exception("Bad input")
 
                     self.echo(usr_inp[-1], data[1])
+
                 elif command == 'cat':
                     self.cat(usr_inp[1])
+
                 else:
                     pass
 
