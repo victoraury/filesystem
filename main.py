@@ -519,7 +519,7 @@ class DiskManager:
             except Exception as e:
                 for i in new_allocations:
                     self._deallocate(i)
-                raise e
+                raise Exception(f"Not enough free space for data allocation")
         
         
         # grava os dados nos blocks
