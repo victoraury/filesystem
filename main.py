@@ -334,6 +334,20 @@ class DiskManager:
         # else:
         #     return (self.root, curr_path)
     
+    def _path_split(self, path):
+        parts = path.split('/')
+
+        return ('/'.join(parts[0:-1]), parts[-1])
+
+    def _file_from_path(self, where, path):
+        (path, file_name) = self._path_split(path)
+
+        if path == '':
+            parent_idx = where
+        else:
+            (parent_idx, _) = self._resolvePath(path)
+
+        return (parent_idx, file_name)
     def ls(self, where):
         # lista os diretórios/arquivos do dir atual
         node = self.get_inode(where)
@@ -419,17 +433,10 @@ class DiskManager:
         self.set_inode(parent_address, par)
 
     def touch(self, where, path):
+        (parent_idx, file_name) = self._file_from_path(where, path)
         parts = path.split('/')
         
-        if len(parts) > 1:
-            file_name = parts[-1]
-            file_path = '/'.join(parts[0:-1])
-            res = self._resolvePath(file_path)
-            where = res[1][-1]
-        else:
-            file_name = parts[0]
-
-        parent = self.get_inode(where)
+        parent = self.get_inode(parent_idx)
         (has, idx) = self._get_subdir(parent.table, file_name)
 
         if has:
@@ -439,15 +446,16 @@ class DiskManager:
         file_idx = self._allocate()
         self.set_inode(file_idx, new_file)
         parent.table.insert(idx, file_idx)
-        self.set_inode(where, parent)
+        self.set_inode(parent_idx, parent)
 
-    def rm(self, where, name):
-        parent = self.get_inode(where)
+    def rm(self, where, original_path):
+        (parent_idx, file_name) = self._file_from_path(where, original_path)
+        parent = self.get_inode(parent_idx)
 
-        (has, idx) = self._get_subdir(parent.table, name)
+        (has, idx) = self._get_subdir(parent.table, file_name)
 
         if not has:
-            raise FileNotFoundError('File doesn\'t exist')
+            raise FileNotFoundError(f'File "{original_path}" doesn\'t exist')
 
         file_inode = self.get_inode(parent.table[idx])
         if file_inode.type != 1:
@@ -458,7 +466,7 @@ class DiskManager:
 
         self._deallocate(parent.table[idx]) # free the file inode
         parent.table.pop(idx)
-        self.set_inode(where, parent)
+        self.set_inode(parent_idx, parent)
 
     def echo(self, path, content):
         address = self._resolvePath(path)[0]
