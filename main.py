@@ -228,6 +228,27 @@ class DiskManager:
         # escreve um inode em disco
         self._writeBytes(idx*BLOCKSIZE, inode.toBytes())
 
+    def copy_file_blocks(self, from_inode, to_inode):
+        alloctd = []
+        
+        try:
+            for i in range(len(from_inode.table)):
+                alloctd.append((from_inode.table[i], self._allocate(type='data')))
+        except Exception as e:
+            for block in alloctd:
+                self._deallocate(block)
+        
+        for i in range(len(to_inode.table)-1, -1, -1):
+            self._deallocate(to_inode.table[i])
+            to_inode.table.pop()
+
+        for chunk in alloctd:
+            chunk_start = chunk[0]*BLOCKSIZE
+            chunk_data = self._readBytes(chunk_start, chunk_start + BLOCKSIZE)
+
+            to_inode.table.append(chunk[1])
+            self._writeBytes(chunk[1] * BLOCKSIZE, chunk_data)
+
     def _get_subdir(self, tbl, name):
         l, r = 0, len(tbl) - 1
 
@@ -527,45 +548,46 @@ class DiskManager:
         (dest_idx, dest_name) = self._file_from_path(where, dest)
 
         dest_parent = self.get_inode(dest_idx)
-        (dest_has, dest_idx) = self._get_subdir(dest_parent.table, dest_name)
+        (dest_parent_has, dest_parent_idx) = self._get_subdir(dest_parent.table, dest_name)
 
-        nfile_name = ''
-        dest_inode = None
-        if dest_has: 
-            dest_inode = self.get_inode(dest_parent.table[dest_idx])
+        if len(dest_parent.table) >= 1962:
+            raise Exception('Folder is full, it doesn\'t support more iNodes.')
 
-            if dest_inode.type == 0:
-                nfile_name = src_name
-            else:
-                nfile_name = dest_name
-        else:
-            nfile_name = dest_name
-            dest_inode = dest_parent
+        if not dest_parent_has: # destination is file but doesn't exist
+            if dest[-1] == '/':
+                raise Exception(f'"{dest}" is not a directory.')
 
-        file_inode = iNode(nfile_name, 1, datetime.datetime.now().timestamp(), datetime.datetime.now().timestamp(), self.user, [])
+            file_inode = iNode(dest_name, 1, datetime.datetime.now().timestamp(), datetime.datetime.now().timestamp(), self.user, [])
+            file_idx = self._allocate()
             
-        for chunk_idx in src_inode.table:
-            chunk_start = chunk_idx*BLOCKSIZE
-            chunk_data = self._readBytes(chunk_start, chunk_start + BLOCKSIZE)
-
-            new_idx = self._allocate(type='data')
-            file_inode.table.append(new_idx)
-            self._writeBytes(new_idx * BLOCKSIZE, chunk_data)
-        
-        if dest_inode.type == 0:
-            inode_idx = self._allocate()
-            (has, table_idx) = self._get_subdir(dest_inode.table, nfile_name)
-            dest_inode.table.insert(table_idx, inode_idx)
-            self.set_inode(inode_idx, file_inode)
+            self.copy_file_blocks(src_inode, file_inode)
+            
+            (has, table_idx) = self._get_subdir(dest_parent.table, dest_name)
+            dest_parent.table.insert(table_idx, file_idx)
+            self.set_inode(file_idx, file_inode)
+            self.set_inode(dest_idx, dest_parent)
         else:
-            for block in dest_inode.table: # free blocks used for data by the file
-                self._deallocate(block)
+            dest_inode = self.get_inode(dest_parent.table[dest_parent_idx])
 
-            dest_inode.name = file_inode.name
-            dest_inode.table = file_inode.table
-
-        self.set_inode(dest_parent.table[dest_idx], dest_inode)
+            if dest_inode.type == 0: # destination is a directory
+                f_name = dest_name
+                if dest_name == dest_inode.name:
+                    f_name = src_name
                 
+                file_inode = iNode(f_name, 1, datetime.datetime.now().timestamp(), datetime.datetime.now().timestamp(), self.user, [])
+                file_idx = self._allocate()
+            
+                self.copy_file_blocks(src_inode, file_inode)
+
+                (has, table_idx) = self._get_subdir(dest_inode.table, dest_name)
+                dest_inode.table.insert(table_idx, file_idx)
+                self.set_inode(file_idx, file_inode)
+                self.set_inode(dest_parent.table[dest_parent_idx], dest_inode)
+            else: # destination is an existing file
+                dest_inode.table = []
+                self.copy_file_blocks(src_inode, dest_inode)
+                self.set_inode(dest_parent.table[dest_parent_idx], dest_inode)
+        
     def run(self):
         while True:
             # get user input
@@ -579,6 +601,8 @@ class DiskManager:
             
             try:
                 usr_inp = input().split(" ")
+            except EOFError:
+                break
             except KeyboardInterrupt:
                 print(" Bye!")
                 return
