@@ -484,6 +484,17 @@ class DiskManager:
         # atualiza o inode em disco
         self.set_inode(address, node)
         
+    def cat(self, path):
+        resolved_path = self._resolvePath(path)
+        where = resolved_path[0]
+        file_inode = self.get_inode(where)
+
+        for chunk_idx in file_inode.table:
+            chunk_start = chunk_idx*BLOCKSIZE
+            chunk_data = self._readBytes(chunk_start, chunk_start + BLOCKSIZE)
+            
+            print(chunk_data.rstrip(b'\x00').decode('utf-8'))
+            
     def run(self):
         while True:
             # get user input
@@ -541,16 +552,17 @@ class DiskManager:
                         raise Exception("Bad input")
 
                     self.echo(usr_inp[-1], data[1])
-
+                elif command == 'cat':
+                    self.cat(usr_inp[1])
                 else:
                     pass
 
             except Exception as e:
-                print(command, e.with_traceback())
+                print(command, e)
 
             
 def test():
-    A = DiskManager('disk.bin', wipeDisk=True, user='victor')
+    A = DiskManager('disk.bin', wipeDisk=False, user='victor')
     A.run()
 
 if __name__ == "__main__":
