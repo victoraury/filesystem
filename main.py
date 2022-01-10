@@ -49,7 +49,7 @@ class iNode:
         self.created = int(created)
         self.modified = int(modified)
         self.owner = owner
-        self.table = table              # nao pode conter zeros
+        self.table = table
 
     def __repr__(self) -> str:
         return f"({self.name}, {self.owner}, {self.created}, {self.modified}, {self.table})"
@@ -159,7 +159,6 @@ class DiskManager:
             return self.disk[start:end]
     
     def _writeBytes(self, atIndex, bytes):
-        # print(f"writing {bytes} at {atIndex}")
         # escreve "bytes" no disco a partir do byte "atIndex"
         self.disk[atIndex: atIndex+len(bytes)] = bytes
         self.disk.flush()
@@ -295,14 +294,13 @@ class DiskManager:
 
 
         new_dir = iNode(name, 0, datetime.datetime.now().timestamp(), datetime.datetime.now().timestamp(), self.user, table)
-        # print(f"creating {new_dir} at block {new_dir_block}")
 
         destiny.table.insert(pos, new_dir_block)
         self.set_inode(where, destiny)
         self.set_inode(new_dir_block, new_dir)
 
     def rmdir(self, where, name):
-
+        # remove um diretório
         parent = self.get_inode(where)
 
         (has, pos) = self._get_subdir(parent.table, name)
@@ -391,7 +389,7 @@ class DiskManager:
         print(" ".join(names))
     
     def mvdir(self, origin, destiny):
-        # move um diretório ou arquivo para outro diretorio
+        # move um diretório ou arquivo para dentro de outro diretorio
         (origin_address, parent_address) = self._resolvePath(origin)
         parent_address = parent_address[-2]
         destiny_address = self._resolvePath(destiny)[0]
@@ -456,6 +454,7 @@ class DiskManager:
         self.set_inode(parent_address, par)
 
     def touch(self, where, path):
+        # cria um arquivo
         (parent_idx, file_name) = self._file_from_path(where, path)
         parent = self.get_inode(parent_idx)
 
@@ -471,6 +470,7 @@ class DiskManager:
         self.set_inode(parent_idx, parent)
 
     def rm(self, where, original_path):
+        # deleta um arquivo
         (parent_idx, file_name) = self._file_from_path(where, original_path)
         parent = self.get_inode(parent_idx)
 
@@ -491,6 +491,7 @@ class DiskManager:
         self.set_inode(parent_idx, parent)
 
     def echo(self, path, content):
+        # grava dados em um arquivo existente
         address = self._resolvePath(path)[0]
         node = self.get_inode(address)
 
@@ -503,14 +504,22 @@ class DiskManager:
         if len(chunks) > 1962:
             raise Exception(f"Data exceeds maximum file size")
         
+        new_allocations = []
+        
         # se o novo precisar de mais blocos do que o anterior
         if len(chunks) < len(node.table):
             for i in range(len(node.table) - len(chunks)):
                 self._deallocate(node.table.pop())
         # se precisar de mais
         else:
-            for i in range(len(chunks) - len(node.table)):
-                node.table.append(self._allocate(type='data'))
+            try:
+                for i in range(len(chunks) - len(node.table)):
+                    na = self._allocate(type='data')
+                    node.table.append(na)
+            except Exception as e:
+                for i in new_allocations:
+                    self._deallocate(i)
+                raise e
         
         
         # grava os dados nos blocks
@@ -521,6 +530,7 @@ class DiskManager:
         self.set_inode(address, node)
         
     def cat(self, path):
+        # lê os conteudos de um arquivo
         resolved_path = self._resolvePath(path)
         where = resolved_path[0]
         file_inode = self.get_inode(where)
@@ -535,6 +545,7 @@ class DiskManager:
             print(chunk_data.rstrip(b'\x00').decode('utf-8'))
     
     def cp(self, where, src, dest):
+        # copia um arquivo
         (src_idx, src_name) = self._file_from_path(where, src)
 
         src_parent = self.get_inode(src_idx)
@@ -636,14 +647,12 @@ class DiskManager:
                     self.rm(curr_dir, usr_inp[1])
                 
                 elif command == 'echo':
-                    print(usr_inp)
                     try:
                         data = " ".join(usr_inp[1:]).split('>>')[0].split("\"")
                     except:
                         raise Exception("Bad input")
 
                     if len(data) != 3:
-                        print(len(data))
                         raise Exception("Bad input")
 
                     self.echo(usr_inp[-1], data[1])
@@ -659,12 +668,12 @@ class DiskManager:
                 print(f'[{command}] {traceback.format_exc()}')
 
             
-def test():
-    A = DiskManager('disk.bin', wipeDisk=False, user='victor')
+def main():
+    A = DiskManager('disk.bin', wipeDisk=True, user='victor')
     A.run()
 
 if __name__ == "__main__":
-    test()
+    main()
     pass
 
 # REQUIREMENTS:
@@ -675,8 +684,8 @@ if __name__ == "__main__":
 #    DONE - Remover arquivo (rm arquivo)
 #    DONE - Escrever no arquivo (echo "conteudo legal" >> arquivo)
 #    DONE - Ler arquivo (cat arquivo)
-#     - Copiar arquivo (cp arquivo1 arquivo2)
-#     - Renomear arquivo (mv arquivo1 arquivo2)
+#    DONE - Copiar arquivo (cp arquivo1 arquivo2)
+#    DONE - Renomear arquivo (mv arquivo1 arquivo2)
 
 # Operações sobre diretórios:
 
