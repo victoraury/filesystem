@@ -7,11 +7,11 @@ what's this all about?
 
 No Linux:
 ```
-python3 main.py
+python3 main.py -u usuario
 ```
 No Windows:
 ```
-py main.py
+py main.py -u usuario
 ```
 
 # Comandos

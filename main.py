@@ -1,6 +1,7 @@
 import mmap
 import datetime
 import traceback
+import os, sys
 
 DISKSIZE = 128*(2**20)
 BLOCKSIZE = 4*(2**10)
@@ -127,9 +128,8 @@ class DiskManager:
         será o restante (30000 blocos) [2768:32768] em disco
     """
 
-    def __init__(self, diskpath, user='system', wipeDisk = False) -> None:
-
-        if wipeDisk:
+    def __init__(self, diskpath, user='system') -> None:
+        if not os.path.isfile('disk.bin'):
             bytearr = bytearray(DISKSIZE)
             bytearr[0:1] = int.to_bytes(224, 1, 'big', signed=False)
             bytearr[self.INODESTART: self.INODESTART + BLOCKSIZE] = (
@@ -180,9 +180,9 @@ class DiskManager:
     def _allocate(self, type='inode') -> int:
         # aloca um bloco na tabela de alocação e retorna o índice
         if type == 'inode':
-            byterange = range(0, 221)
+            byterange = range(0, 347)
         elif type == 'data':
-            byterange = range(221, 2*BLOCKSIZE)
+            byterange = range(347, 2*BLOCKSIZE)
         else:
             raise Exception()
         
@@ -217,7 +217,7 @@ class DiskManager:
     
     def get_inode(self, idx):
         # carrega um inode de um bloco
-        if idx < 2 or idx > 2768:
+        if idx < 2 or idx > 2776:
             raise Exception('Inode index out of range')
 
         blocks = idx * BLOCKSIZE
@@ -290,8 +290,10 @@ class DiskManager:
         if has:
             raise FileExistsError(f'Directory "{name}" already exists')
         
-        new_dir_block = self._allocate() # aloca um novo inode
-
+        try:
+            new_dir_block = self._allocate() # aloca um novo inode
+        except:
+            raise Exception('Inode limit reached')
 
         new_dir = iNode(name, 0, datetime.datetime.now().timestamp(), datetime.datetime.now().timestamp(), self.user, table)
 
@@ -423,6 +425,9 @@ class DiskManager:
         self.set_inode(destiny_address, dest)
 
     def mv(self, where, name):
+        if '/' in name:
+            raise Exception(f'Name cannot contain "/"')
+        
         # renomeia um arquivo ou diretorio
         address, parent_address = self._resolvePath(where)
         
@@ -668,12 +673,21 @@ class DiskManager:
                 print(f'[{command}] {traceback.format_exc()}')
 
             
-def main():
-    A = DiskManager('disk.bin', wipeDisk=True, user='victor')
+def main(argv):
+    import getopt
+    
+    opts, args = getopt.getopt(argv, "h:u:")
+    
+    user = 'system'
+    for opt in opts:
+        if opt[0] == '-u':
+            user = opt[1]
+
+    A = DiskManager('disk.bin', user=user)
     A.run()
 
 if __name__ == "__main__":
-    main()
+    main(sys.argv[1:])
     pass
 
 # REQUIREMENTS:
