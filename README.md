@@ -30,4 +30,38 @@ py main.py -u usuario
 |```cp arquivo1 arquivo2```| Copia o conteúdo de ```arquivo1``` para ```arquivo2```. Se ```arquivo2``` não existir, será criado, e se já existir outro arquivo com o mesmo nome, sobrescreverá.|
 
 # Exemplos
-monke see monke do
+Criar diretório:
+```
+mkdir p1
+mkdir p2
+mkdir p3
+```
+Remover diretório (precisa estar vazio):
+```
+rmdir p3
+```
+Trocar de diretório:
+```
+cd p2
+cd ..
+```
+Renomear diretório:
+```
+mv p1 p3
+```
+Mover diretório:
+```
+mvdir p2 p3
+```
+Criar arquivo:
+```
+touch a.txt
+```
+Escrever em arquivo:
+```
+echo "texto" >> a.txt
+```
+Exibir texto do arquivo:
+```
+cat a.txt
+```
