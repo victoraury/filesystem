@@ -1,7 +1,4 @@
-import mmap
-import datetime
-import traceback
-import os, sys
+import mmap, getopt, datetime, traceback, os, sys
 
 DISKSIZE = 128*(2**20)
 BLOCKSIZE = 4*(2**10)
@@ -112,9 +109,7 @@ class iNode:
         )
 
 class DiskManager:
-
     INODESTART = 2 * BLOCKSIZE
-    DATASTART = 2758 * BLOCKSIZE
 
     """
     gerenciamento de blocos alocados:
@@ -122,10 +117,10 @@ class DiskManager:
         o status de cada bloco (livre ou o ocupado) será identificado por um bit
         então são necessários 4096 bytes (2 blocos) [0:2] em disco
     espaço para iNodes:
-        o disco possuirá 2766 iNode's [2:2768] em disco
+        o disco possuirá 2776 iNode's [2:2778] em disco
         o primeiro iNode sempre será a pasta raiz (bloco índice 2)
     espaço para dados de arquivos:
-        será o restante (30000 blocos) [2768:32768] em disco
+        será o restante (29990 blocos) [2778:32768] em disco
     """
 
     def __init__(self, diskpath, user='system') -> None:
@@ -673,9 +668,7 @@ class DiskManager:
                 print(f'[{command}] {traceback.format_exc()}')
 
             
-def main(argv):
-    import getopt
-    
+def main(argv):    
     opts, args = getopt.getopt(argv, "h:u:")
     
     user = 'system'
