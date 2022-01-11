@@ -1,6 +1,5 @@
 # Sistema de Arquivos
-what's this all about?
-
+Sistema desenvolvido para a matéria de Sistemas Operacionais, ele visa simular os comandos de Linux para gerenciamento de arquivos.
 
 # Instalação
 É necessário o [Python](https://www.python.org/) (versão >= 3.8) para execução. Tendo o Python instalado, basta realizar o download do código fonte e executar.
